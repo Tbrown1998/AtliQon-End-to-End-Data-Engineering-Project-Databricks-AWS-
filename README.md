@@ -116,6 +116,46 @@ End-to-End-Data-Engineering-Databricks-FMCG
 
 Output: Clean, structured Silver Delta tables  
 
+**Sample Silver Layer Cleaning script**
+
+```python
+# 1. Keep only rows where order_qty is present
+df_orders = df_orders.filter(F.col("order_qty").isNotNull())
+
+
+# 2. Clean customer_id → keep numeric, else set to 999999
+df_orders = df_orders.withColumn(
+    "customer_id",
+    F.when(F.col("customer_id").rlike("^[0-9]+$"), F.col("customer_id"))
+     .otherwise("999999")
+     .cast("string")
+)
+
+# 3. Remove weekday name from the date text
+#    "Tuesday, July 01, 2025" → "July 01, 2025"
+df_orders = df_orders.withColumn(
+    "order_placement_date",
+    F.regexp_replace(F.col("order_placement_date"), r"^[A-Za-z]+,\s*", "")
+)
+
+# 4. Parse order_placement_date using multiple possible formats
+df_orders = df_orders.withColumn(
+    "order_placement_date",
+    F.coalesce(
+        F.try_to_date("order_placement_date", "yyyy/MM/dd"),
+        F.try_to_date("order_placement_date", "dd-MM-yyyy"),
+        F.try_to_date("order_placement_date", "dd/MM/yyyy"),
+        F.try_to_date("order_placement_date", "MMMM dd, yyyy"),
+    )
+)
+
+# 5. Drop duplicates
+df_orders = df_orders.dropDuplicates(["order_id", "order_placement_date", "customer_id", "product_id", "order_qty"])
+
+# 5. convert product id to string
+df_orders = df_orders.withColumn('product_id', F.col('product_id').cast('string'))
+
+```
 ---
 
 ### 3. Gold Layer: Business-Level Aggregation
@@ -124,6 +164,67 @@ Output: Clean, structured Silver Delta tables
 - Top performing stores  
 - Monthly sales trends  
 
+**Sample Gold Layer view**
+
+```sql
+CREATE OR REPLACE VIEW fmcg.gold.vw_fact_orders_enriched AS (
+    SELECT 
+        fo.date,
+        fo.product_code,
+        fo.customer_code,
+
+        -- Date attributes
+        dd.date_key,
+        dd.year,
+        dd.month_name,
+        dd.month_short_name,
+        dd.quarter,
+        dd.year_quarter,
+
+        -- Customer attributes
+        dc.customer,
+        dc.market,
+        dc.platform,
+        dc.channel,
+
+        -- Product attributes
+        dp.division,
+        dp.category,
+        dp.product,
+        dp.variant,
+
+        -- Metrics
+        fo.sold_quantity,
+        gp.price_inr,
+
+        -- Derived Metric: Amount
+        (fo.sold_quantity * gp.price_inr) AS total_amount_inr
+    
+    FROM fmcg.gold.fact_orders fo
+
+    -- Join with Date Dimension
+    LEFT JOIN fmcg.gold.dim_date dd
+           ON fo.date = dd.month_start_date
+
+    -- Join with Customers
+    LEFT JOIN fmcg.gold.dim_customers dc 
+           ON fo.customer_code = dc.customer_code
+
+    -- Join with Products
+    LEFT JOIN fmcg.gold.dim_products dp 
+           ON fo.product_code = dp.product_code
+
+    -- Join with Price (year-based)
+    LEFT JOIN fmcg.gold.dim_gross_price gp 
+           ON fo.product_code = gp.product_code
+          AND YEAR(fo.date) = gp.year
+);
+
+
+-- Preview
+SELECT * FROM fmcg.gold.vw_fact_orders_enriched;
+
+```
 Output: Aggregated, analytics-ready Gold tables  
 
 ---
