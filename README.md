@@ -18,8 +18,8 @@ When a big company acquires a smaller one, a critical challenge is merging their
 
 This project simulates two separate data sources:
 
-- **Big Retailer:** Historical sales data  
-- **Small Company:** Recent sales data  
+- **Parent Company:** Historical sales data  
+- **Child Company:** Recent sales data  
 
 The objective was to build a pipeline that ingests, cleans, transforms, and enriches this combined data to provide a single source of truth for business analysis.
 
@@ -39,8 +39,32 @@ The objective was to build a pipeline that ingests, cleans, transforms, and enri
 
 ## 🏗️ Architecture Diagram
 
-![Project Architecture](project_architecture.png)
+```mermaid
+flowchart TD
+    subgraph A[Data Sources]
+        direction LR
+        B[Parent Company<br>Sales Data]
+        C[Child Company<br>Sales Data]
+    end
 
+    D[(AWS S3<br>Raw Data Landing)]
+    E[Databricks<br>Free Edition]
+
+    subgraph E
+        direction TB
+        F[<b>Bronze Layer</b><br>Raw Data Ingestion]
+        G[<b>Silver Layer</b><br>Data Cleansing<br>& Standardization]
+        H[<b>Gold Layer</b><br>Business-Level<br>Aggregations & Joins]
+    end
+
+    I[<b>Output</b><br>Databricks SQL Dashboard<br>& Genie]
+
+    A -- CSV/JSON Files --> D
+    D -- Loaded via Spark --> F
+    F -- Write --> G
+    G -- Write --> H
+    H -- Query --> I
+```
 ---
 
 ## 📂 Project Structure
